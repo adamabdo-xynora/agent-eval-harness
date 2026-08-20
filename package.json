@@ -1,0 +1,21 @@
+{
+  "name": "agent-eval-harness",
+  "version": "0.1.0",
+  "description": "An eval harness for LLM-as-judge pipelines: golden-set calibration, judge-vs-human agreement scoring, and a CI gate that fails when the judge drifts.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "*"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vitest": "*",
+    "@types/node": "*",
+    "tsx": "*"
+  }
+}
