@@ -265,7 +265,7 @@ export async function judgeTranscript(
 
   let raw: string;
   try {
-    raw = await client.complete({ system, user, maxTokens: 1024 });
+    raw = await client.complete({ system, user, maxTokens: 4096 });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(

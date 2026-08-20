@@ -169,7 +169,7 @@ describe("judgeTranscript happy path", () => {
     expect(result.rawResponse).toBe(OUT_OF_ORDER_REPLY);
   });
 
-  it("asks the client with the built prompt and a 1024-token cap", async () => {
+  it("asks the client with the built prompt and a 4096-token cap", async () => {
     const client = scriptedClient(OUT_OF_ORDER_REPLY);
     const expected = buildJudgePrompt(TRANSCRIPT, CRITERIA);
 
@@ -179,7 +179,7 @@ describe("judgeTranscript happy path", () => {
     expect(client.calls[0]).toEqual({
       system: expected.system,
       user: expected.user,
-      maxTokens: 1024,
+      maxTokens: 4096,
     });
   });
 
