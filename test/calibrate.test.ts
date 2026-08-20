@@ -50,6 +50,8 @@ function resultFrom(
     pairs,
     reports: pairs.length > 0 ? scoreAgreement(pairs) : [],
     judgeFailures,
+    // The gate never reads raw responses; these fixtures carry none.
+    judgeRawResponses: [],
     startedAt: "2026-01-01T00:00:00.000Z",
     finishedAt: "2026-01-01T00:00:12.000Z",
   };
@@ -75,6 +77,21 @@ function goldenCase(id: string, humanVerdicts: Verdict[]): GoldenCase {
 }
 
 /**
+ * The exact reply body `scriptedClient` returns for a set of verdicts. Shared with the
+ * tests so `judgeRawResponses` can be asserted against the same string the fake emitted,
+ * rather than against a re-spelling of it that could drift.
+ */
+function scriptedReply(verdicts: Verdict[]): string {
+  return JSON.stringify({
+    verdicts: CRITERION_IDS.map((criterion, index) => ({
+      criterion,
+      verdict: verdicts[index] ?? "pass",
+      rationale: `judge rationale for ${criterion}`,
+    })),
+  });
+}
+
+/**
  * A `ModelClient` scripted by transcript id: either the judge verdicts to return (in
  * CRITERIA order) or an Error to throw, standing in for a transport failure. An
  * unscripted transcript throws loudly rather than returning something plausible.
@@ -95,13 +112,7 @@ function scriptedClient(script: Record<string, Verdict[] | Error>): ModelClient 
       if (entry === undefined) throw new Error(`fake client: unscripted transcript ${id}`);
       if (entry instanceof Error) throw entry;
 
-      return JSON.stringify({
-        verdicts: CRITERION_IDS.map((criterion, index) => ({
-          criterion,
-          verdict: entry[index] ?? "pass",
-          rationale: `judge rationale for ${criterion}`,
-        })),
-      });
+      return scriptedReply(entry);
     },
   };
 }
@@ -142,6 +153,28 @@ describe("runCalibration", () => {
       "case_c:task_completion:pass->pass",
       "case_c:grounding:fail->fail",
       "case_c:safety:pass->pass",
+    ]);
+
+    // Every pair carries the judge's own reasoning for the verdict it holds. This is
+    // what makes a disagreement row in the artifact worth reading: the verdict says the
+    // judge was wrong, the rationale says why it thought otherwise.
+    expect(result.pairs.map((pair) => pair.judgeRationale)).toEqual([
+      "judge rationale for task_completion",
+      "judge rationale for grounding",
+      "judge rationale for safety",
+      "judge rationale for task_completion",
+      "judge rationale for grounding",
+      "judge rationale for safety",
+      "judge rationale for task_completion",
+      "judge rationale for grounding",
+      "judge rationale for safety",
+    ]);
+
+    // One verbatim reply per successfully judged transcript, in judging order.
+    expect(result.judgeRawResponses).toEqual([
+      { transcriptId: "case_a", rawResponse: scriptedReply(["pass", "pass", "fail"]) },
+      { transcriptId: "case_b", rawResponse: scriptedReply(["fail", "pass", "fail"]) },
+      { transcriptId: "case_c", rawResponse: scriptedReply(["pass", "fail", "pass"]) },
     ]);
 
     // Cases were judged sequentially, in golden-set order.
@@ -190,6 +223,16 @@ describe("runCalibration", () => {
       "case_c:safety:pass->pass",
     ]);
 
+    // A transcript that failed emitted no reply to record. Raw responses and judge
+    // failures partition the golden set; nothing appears in both.
+    expect(result.judgeRawResponses).toEqual([
+      { transcriptId: "case_a", rawResponse: scriptedReply(["pass", "pass", "fail"]) },
+      { transcriptId: "case_c", rawResponse: scriptedReply(["pass", "fail", "pass"]) },
+    ]);
+    expect(
+      result.judgeRawResponses.some((entry) => entry.transcriptId === "case_b"),
+    ).toBe(false);
+
     // The judge was still asked about case_c after case_b blew up.
     expect(client.judged).toEqual(["case_a", "case_b", "case_c"]);
   });
@@ -203,8 +246,79 @@ describe("runCalibration", () => {
     // No throw: scoring an empty set is skipped, and the gate turns it into violations.
     expect(result.pairs).toEqual([]);
     expect(result.reports).toEqual([]);
+    expect(result.judgeRawResponses).toEqual([]);
     expect(result.judgeFailures).toHaveLength(1);
     expect(applyGate(result).pass).toBe(false);
+  });
+});
+
+describe("runCalibration progress", () => {
+  /**
+   * Long enough that the wrapped message exceeds the 80-character budget, so the
+   * truncation is exercised rather than merely permitted.
+   */
+  const TRANSPORT_ERROR = "529 overloaded: upstream capacity exceeded, retry after backoff";
+
+  it("announces each case before judging it and reports the outcome after", async () => {
+    const cases = [
+      goldenCase("case_a", ["pass", "pass", "fail"]),
+      goldenCase("case_b", ["fail", "pass", "pass"]),
+    ];
+    const client = scriptedClient({
+      case_a: ["pass", "pass", "fail"],
+      case_b: new Error(TRANSPORT_ERROR),
+    });
+
+    const messages: string[] = [];
+    const result = await runCalibration(client, cases, (message) => messages.push(message));
+
+    // Exact sequence: the "judging" line lands BEFORE the model call, which is the whole
+    // point — a run that hangs on case_b has already told the operator where it is.
+    expect(messages).toEqual([
+      "judging case_a (1/2)...",
+      "  case_a: ok",
+      "judging case_b (2/2)...",
+      // The recorded error, cut to 80 characters — a progress line stays one line.
+      '  case_b: FAILED — judging transcript "case_b" failed: model client error: 529 overloaded: upstream',
+    ]);
+
+    // Progress is commentary, not measurement: the result is what it would have been.
+    expect(result.pairs).toHaveLength(CRITERION_IDS.length);
+    expect(result.judgeFailures.map((failure) => failure.transcriptId)).toEqual(["case_b"]);
+  });
+
+  it("truncates the failure line to 80 characters of the recorded error", async () => {
+    const cases = [goldenCase("case_b", ["pass", "pass", "pass"])];
+    const client = scriptedClient({ case_b: new Error(TRANSPORT_ERROR) });
+
+    const messages: string[] = [];
+    const result = await runCalibration(client, cases, (message) => messages.push(message));
+
+    const recorded = result.judgeFailures[0]?.error ?? "";
+    expect(recorded.length).toBeGreaterThan(80);
+
+    const failureLine = messages[1] ?? "";
+    expect(failureLine).toBe(`  case_b: FAILED — ${recorded.slice(0, 80)}`);
+
+    // The full error survives in the result even though the progress line is clipped.
+    expect(recorded).toContain(TRANSPORT_ERROR);
+  });
+
+  it("runs unchanged when no onProgress is given", async () => {
+    const cases = [goldenCase("case_a", ["pass", "pass", "fail"])];
+    const script = { case_a: ["pass", "pass", "fail"] as Verdict[] };
+
+    const withoutProgress = await runCalibration(scriptedClient(script), cases);
+    const withProgress = await runCalibration(scriptedClient(script), cases, () => {});
+
+    expect(withoutProgress.pairs).toEqual(withProgress.pairs);
+    expect(withoutProgress.judgeFailures).toEqual([]);
+    expect(withoutProgress.judgeRawResponses).toEqual(withProgress.judgeRawResponses);
+    expect(renderPairs(withoutProgress.pairs)).toEqual([
+      "case_a:task_completion:pass->pass",
+      "case_a:grounding:pass->pass",
+      "case_a:safety:fail->fail",
+    ]);
   });
 });
 

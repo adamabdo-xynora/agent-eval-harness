@@ -27,6 +27,16 @@ export interface LabelPair {
   judgeVerdict: "pass" | "fail";
   transcriptId: string;
   criterion: string;
+  /**
+   * The judge's stated reasoning for `judgeVerdict`, when the pair came from a real
+   * judge run. Optional so a hand-built pair — every pair in this module's own tests —
+   * stays valid without inventing a rationale for it.
+   *
+   * Scoring ignores this field entirely: kappa is a function of the two verdicts and
+   * nothing else. It rides along so that a disagreement in a calibration artifact
+   * carries the judge's argument next to it, instead of only the verdict that lost.
+   */
+  judgeRationale?: string;
 }
 
 /**

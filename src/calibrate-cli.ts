@@ -274,7 +274,13 @@ async function main(rawArgs: string[]): Promise<number> {
 
   let result: CalibrationResult;
   try {
-    result = await runCalibration(anthropicClient(key, model), cases);
+    // Progress goes to stderr, never stdout: stdout carries the gate report, which a CI
+    // step may pipe, diff, or redirect into an artifact. Interleaving per-case chatter
+    // into that stream would corrupt the one output another program consumes. stderr is
+    // for the human watching a multi-minute run wonder whether it has hung.
+    result = await runCalibration(anthropicClient(key, model), cases, (message) =>
+      stderr.write(`${redact(message, key)}\n`),
+    );
   } catch (error) {
     // Per-transcript judge failures are recorded by `runCalibration`, not thrown, so
     // reaching here means something structural broke. Not a config error, and certainly

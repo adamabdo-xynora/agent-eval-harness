@@ -34,6 +34,14 @@ export interface CalibrationResult {
   reports: AgreementReport[];
   /** Transcripts the judge errored on. These contribute no pairs. */
   judgeFailures: Array<{ transcriptId: string; error: string }>;
+  /**
+   * The verbatim model reply for every successfully judged transcript, in judging
+   * order. Rationales on the pairs answer "why did the judge disagree"; these answer
+   * "what exactly did the model emit" when the parsed rationale is not enough — a
+   * truncated reply, a hedge the parser dropped, a formatting change worth noticing.
+   * Failures are already captured in `judgeFailures` and appear here not at all.
+   */
+  judgeRawResponses: Array<{ transcriptId: string; rawResponse: string }>;
   startedAt: string;
   finishedAt: string;
 }
@@ -53,65 +61,81 @@ const CRITERION_IDS: readonly string[] = CRITERIA.map((c) => c.id);
  * `parseJudgeResponse` (it rejects incomplete replies), so if it somehow does, the whole
  * transcript is recorded as a failure rather than contributing a partial row — a case
  * that quietly halves its pair count is worse than a case that is visibly absent.
+ *
+ * `onProgress`, when given, is called once before each case and once after it. A live
+ * run is minutes of model calls with nothing on the console, which reads as a hang;
+ * this is the callback that says otherwise. It is optional and side-effect-only —
+ * omitting it reproduces the previous behaviour exactly, and no message it receives
+ * influences the result.
  */
 export async function runCalibration(
   client: ModelClient,
   cases: GoldenCase[],
+  onProgress?: (message: string) => void,
 ): Promise<CalibrationResult> {
   const startedAt = new Date().toISOString();
 
   const pairs: LabelPair[] = [];
   const judgeFailures: Array<{ transcriptId: string; error: string }> = [];
+  const judgeRawResponses: Array<{ transcriptId: string; rawResponse: string }> = [];
+
+  const progress = (message: string): void => onProgress?.(message);
 
   // Sequential on purpose: eight cases, no need for concurrency complexity. It also
   // keeps output deterministic in order — pairs come out in golden-case order every
   // run, so a CI report diff shows drift rather than scheduling noise.
-  for (const goldenCase of cases) {
+  for (const [index, goldenCase] of cases.entries()) {
     const { transcript, labels } = goldenCase;
+
+    progress(`judging ${transcript.id} (${index + 1}/${cases.length})...`);
 
     let result: JudgeResult;
     try {
       result = await judgeTranscript(client, transcript);
     } catch (error) {
-      judgeFailures.push({
-        transcriptId: transcript.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      const message = error instanceof Error ? error.message : String(error);
+      judgeFailures.push({ transcriptId: transcript.id, error: message });
+      progress(failureLine(transcript.id, message));
       continue;
     }
 
     const judgeByCriterion = new Map(
-      result.verdicts.map((verdict) => [verdict.criterion, verdict.verdict] as const),
+      result.verdicts.map((verdict) => [verdict.criterion, verdict] as const),
     );
 
     const casePairs: LabelPair[] = [];
     let missingCriterion: string | undefined;
 
     for (const label of labels) {
-      const judgeVerdict = judgeByCriterion.get(label.criterion);
-      if (judgeVerdict === undefined) {
+      const judged = judgeByCriterion.get(label.criterion);
+      if (judged === undefined) {
         missingCriterion = label.criterion;
         break;
       }
       casePairs.push({
         humanVerdict: label.verdict,
-        judgeVerdict,
+        judgeVerdict: judged.verdict,
         transcriptId: transcript.id,
         criterion: label.criterion,
+        judgeRationale: judged.rationale,
       });
     }
 
     if (missingCriterion !== undefined) {
-      judgeFailures.push({
-        transcriptId: transcript.id,
-        error:
-          `judge returned no verdict for labeled criterion "${missingCriterion}"; ` +
-          `the transcript contributes no pairs`,
-      });
+      const message =
+        `judge returned no verdict for labeled criterion "${missingCriterion}"; ` +
+        `the transcript contributes no pairs`;
+      judgeFailures.push({ transcriptId: transcript.id, error: message });
+      progress(failureLine(transcript.id, message));
       continue;
     }
 
     pairs.push(...casePairs);
+    judgeRawResponses.push({
+      transcriptId: transcript.id,
+      rawResponse: result.rawResponse,
+    });
+    progress(`  ${transcript.id}: ok`);
   }
 
   // `scoreAgreement` refuses an empty pair list, and rightly so. But a run where every
@@ -122,7 +146,14 @@ export async function runCalibration(
 
   const finishedAt = new Date().toISOString();
 
-  return { pairs, reports, judgeFailures, startedAt, finishedAt };
+  return { pairs, reports, judgeFailures, judgeRawResponses, startedAt, finishedAt };
+}
+
+/** How much of a judge error a progress line shows before it stops being a progress line. */
+const PROGRESS_ERROR_CHARS = 80;
+
+function failureLine(transcriptId: string, error: string): string {
+  return `  ${transcriptId}: FAILED — ${error.slice(0, PROGRESS_ERROR_CHARS)}`;
 }
 
 export interface GatePolicy {
