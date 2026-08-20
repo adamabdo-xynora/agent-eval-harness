@@ -9,11 +9,8 @@
     // See also https://aka.ms/tsconfig/module
     "module": "nodenext",
     "target": "es2022",
-    "types": [],
-    // For nodejs:
-    // "lib": ["esnext"],
-    // "types": ["node"],
-    // and npm install -D @types/node
+    // Node built-ins (node:fs/promises, node:path) are used by the loader.
+    "types": ["node"],
 
     // Other Outputs
     "sourceMap": true,
@@ -43,5 +40,8 @@
 
     "moduleResolution": "nodenext",
     "esModuleInterop": true,
-  }
+  },
+
+  // Only src/ is compiled; test/ lives outside rootDir and is run by Vitest.
+  "include": ["src"]
 }
