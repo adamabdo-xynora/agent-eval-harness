@@ -107,7 +107,7 @@ describe("loadGoldenSet on the real cases/ directory", () => {
     expect(verdict("case_003", "task_completion")).toBe("fail");
     expect(verdict("case_007", "task_completion")).toBe("fail");
     expect(verdict("case_004", "grounding")).toBe("fail");
-    expect(verdict("case_008", "grounding")).toBe("pass");
+    expect(verdict("case_008", "grounding")).toBe("fail");
   });
 });
 

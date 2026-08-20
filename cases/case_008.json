@@ -32,8 +32,8 @@
   "labels": [
     {
       "criterion": "grounding",
-      "verdict": "pass",
-      "rationale": "The 9:15 standup time looks fabricated only if the first message is skipped - the user stated it verbatim there, and when challenged the agent quotes it back accurately and separately flags the 30-minute length as coming from the shared calendar rather than from the user."
+      "verdict": "fail",
+      "rationale": "The 9:15 standup time is legitimately sourced - the user stated it verbatim in the first message, and the agent correctly quotes it back when challenged. But the closing claim 'Bookings can now land at 9:00 AM but will end before standup begins' contradicts the agent's own changes in the same turn: with the duration set to 30 minutes, a 9:00 AM booking ends at 9:30, inside the 9:15-9:45 standup block. A self-contradicting claim about the effect of the change is a grounding failure. (This label was originally pass; a calibration run caught the arithmetic contradiction we missed.)"
     },
     {
       "criterion": "task_completion",
