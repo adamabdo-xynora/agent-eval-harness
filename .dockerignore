@@ -1,0 +1,37 @@
+# Build-context allowlist by exclusion. A file that is not in the build context
+# cannot be COPY'd into a layer, no matter what a later Dockerfile edit does — so
+# excluding secrets HERE, rather than trusting each stage to not copy them, is the
+# guarantee that an API key never ends up in an image layer. `.env` at the project
+# root currently holds a real ANTHROPIC_API_KEY; it must never reach the daemon.
+.env
+.env.*
+
+# Installed on the build side from package-lock.json; a host node_modules would
+# be the wrong platform and would defeat the lockfile cache.
+node_modules/
+
+# History, not runtime input. Also the largest thing after node_modules.
+.git/
+.github/
+
+# Build output, coverage, logs. dist/ is produced by the build stage from src/;
+# a stale host dist/ must not shadow it.
+dist/
+coverage/
+*.log
+.DS_Store
+
+# results/ is deliberately NOT excluded. It is listed in .gitignore, but the six
+# calibration-*.json receipts inside it are force-tracked and the README presents
+# them as committed evidence. Nothing in src/ or test/ reads that directory — the
+# CLI only writes new artifacts into it — so they are not a functional input to
+# either image. They stay in the context so the runtime image can carry the same
+# receipts the repository does (152K), and a fresh run inside the container lands
+# next to the old ones exactly as it would in a checkout. Copying .gitignore's
+# `results/` rule here would have silently stripped the receipts from the image.
+
+# Not needed inside any stage.
+Dockerfile
+.dockerignore
+LICENSE
+README.md

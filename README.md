@@ -57,6 +57,8 @@ case_008 is a trap case: the agent cites a standup time (9:15) that *looks* fabr
 
 Exit codes: 0 = gate PASS, 1 = gate FAIL, 2 = setup error. Each run writes results/calibration-(timestamp).json with verdicts, rationales, raw judge responses, and the policy.
 
+The same two things run in Docker, and the test image needs no key. `docker build --target test -t agent-eval-harness:test . && docker run --rm agent-eval-harness:test npm test` runs the 104 offline tests inside the image (the typecheck already ran during the build). `docker build -t agent-eval-harness .` produces the runtime image — compiled JavaScript, the golden set, the committed receipts, and the SDK; no test tooling, no key baked in. Run it with `docker run --rm -e ANTHROPIC_API_KEY agent-eval-harness`; add `-v "$PWD/results:/app/results"` to keep the artifact. Without a key it exits 2 with the same setup message as the CLI.
+
 CI runs the offline suite on every push. The live calibration is a manually-dispatched job (Actions tab) for anyone with an ANTHROPIC_API_KEY secret configured — a gate FAIL fails the job.
 
 ## Adapting it
