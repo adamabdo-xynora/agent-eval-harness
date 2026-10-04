@@ -61,6 +61,19 @@ The same two things run in Docker, and the test image needs no key. `docker buil
 
 CI runs the offline suite on every push. The live calibration is a manually-dispatched job (Actions tab) for anyone with an ANTHROPIC_API_KEY secret configured — a gate FAIL fails the job.
 
+### Container image
+
+The runtime image is published to GHCR on every version tag, by a workflow whose gate runs the 104
+tests and the typecheck inside the test image first — the push step is unreachable unless both pass.
+
+    docker pull ghcr.io/adamabdo-xynora/agent-eval-harness:0.1.0
+    docker run --rm -e ANTHROPIC_API_KEY ghcr.io/adamabdo-xynora/agent-eval-harness:0.1.0
+
+It runs the compiled calibration CLI and carries the golden set and the six committed receipts; add
+`-v "$PWD/results:/app/results"` to keep a new artifact. Without a key it exits 2 with the same
+setup message as the local CLI. `--help` is not a flag it accepts — it exits 2 reporting an unknown
+option and printing its usage line. Published for `linux/amd64` and `linux/arm64`.
+
 ## Adapting it
 
 Replace cases/*.json with your own transcripts and labels, rewrite the criterion descriptions in src/golden.ts for your domain, run the calibration, and — this is the actual method — **read every disagreement rationale before deciding whether to fix the rubric, the judge, or your labels.** Expect to be wrong about at least one of your own labels.
