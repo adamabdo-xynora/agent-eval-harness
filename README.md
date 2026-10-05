@@ -66,13 +66,21 @@ CI runs the offline suite on every push. The live calibration is a manually-disp
 The runtime image is published to GHCR on every version tag, by a workflow whose gate runs the 104
 tests and the typecheck inside the test image first — the push step is unreachable unless both pass.
 
-    docker pull ghcr.io/adamabdo-xynora/agent-eval-harness:0.1.0
-    docker run --rm -e ANTHROPIC_API_KEY ghcr.io/adamabdo-xynora/agent-eval-harness:0.1.0
+    docker pull ghcr.io/adamabdo-xynora/agent-eval-harness:0.1.1
+    docker run --rm -e ANTHROPIC_API_KEY ghcr.io/adamabdo-xynora/agent-eval-harness:0.1.1
 
 It runs the compiled calibration CLI and carries the golden set and the six committed receipts; add
 `-v "$PWD/results:/app/results"` to keep a new artifact. Without a key it exits 2 with the same
 setup message as the local CLI. `--help` is not a flag it accepts — it exits 2 reporting an unknown
 option and printing its usage line. Published for `linux/amd64` and `linux/arm64`.
+
+The image carries signed build provenance, so you can check that these bytes came from this
+repository's CI rather than from someone with push access to the registry:
+
+    gh attestation verify oci://ghcr.io/adamabdo-xynora/agent-eval-harness:0.1.1 --owner adamabdo-xynora
+
+`0.1.0` remains published, `linux/amd64` only and without an attestation. Its digest has not
+changed and will not: a version that alters its bytes is not a version.
 
 ## Adapting it
 
